@@ -1,0 +1,56 @@
+# The data dictionary (read by the Greenfield Swarm control plane and by the agent).
+#
+# Every table and column in src/db/schema.ts must appear here; `pnpm dictionary:check` (part of
+# `pnpm check`) fails when one is missing. Describe things in the business's own words.
+#
+# Per column:
+#   description: what it means to the business
+#   sensitive: true marks personal data; it is hidden from staff reports and replaced with a
+#              realistic fake in the scrubbed copy that previews and staging use
+#   pii_kind:  how to fake it: email, phone, name, address, text, secret, url or ip
+# Per table:
+#   snapshot: full (default), sample (keep only the newest sample_rows in scrubbed copies), or
+#             skip (left out of scrubbed copies entirely, e.g. sessions)
+version: 1
+tables:
+  services:
+    description: The services the business offers for booking
+    columns:
+      id: { description: Internal number }
+      slug: { description: Short name used in links }
+      name: { description: Service name as shown to customers }
+      description: { description: One or two sentences about the service }
+      price_cents: { description: Price in cents }
+      duration_minutes: { description: How long it takes }
+      active: { description: 1 when bookable, 0 when hidden }
+      created_at: { description: When it was added }
+  customers:
+    description: People who have booked
+    columns:
+      id: { description: Internal number }
+      email: { description: Email address, sensitive: true, pii_kind: email }
+      full_name: { description: Full name, sensitive: true, pii_kind: name }
+      phone: { description: Phone number, sensitive: true, pii_kind: phone }
+      notes: { description: Private notes staff keep about the customer, sensitive: true, pii_kind: text }
+      created_at: { description: When they first booked }
+  bookings:
+    description: Booking requests, one per customer per time slot
+    columns:
+      id: { description: Booking number }
+      customer_id: { description: Which customer (see customers) }
+      service_id: { description: Which service (see services) }
+      requested_for: { description: The date and time asked for }
+      status: { description: 'requested, confirmed, done or cancelled' }
+      message: { description: What the customer wrote when booking, sensitive: true, pii_kind: text }
+      created_at: { description: When the request came in }
+      updated_at: { description: When it last changed }
+  activity:
+    description: A log of what happened (bookings made, statuses changed)
+    snapshot: sample
+    sample_rows: 2000
+    columns:
+      id: { description: Internal number }
+      at: { description: When }
+      kind: { description: What kind of event }
+      booking_id: { description: The booking it is about, if any }
+      detail: { description: Extra details about the event }

@@ -1,0 +1,40 @@
+# Greenfield starter-app: a web service plus its own Postgres on main, and a preview environment
+# per pull request with its own database, seeded from the scrubbed production snapshot.
+previews:
+  generation: automatic
+  expireAfterDays: 14
+
+services:
+  - type: web
+    name: starter-app
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    # Migrations first, then (previews only) the scrubbed snapshot. Production never seeds.
+    preDeployCommand: pnpm db:migrate && pnpm seed:preview
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: '22'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: starter-app-db
+          property: connectionString
+      # Placed by the control plane (import_site / rotate_seed_token); previews inherit them.
+      - key: SWARM_URL
+        sync: false
+      - key: SWARM_SEED_TOKEN
+        sync: false
+
+databases:
+  - name: starter-app-db
+    region: ohio
+    plan: basic-256mb
+    postgresMajorVersion: '17'
+    # Previews get a copy of this database on the smallest plan; the seed script fills it.
+    previewPlan: basic-256mb

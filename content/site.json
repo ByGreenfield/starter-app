@@ -1,0 +1,9 @@
+{
+  "name": "Demo Studio",
+  "tagline": "Book a session with us.",
+  "intro": "Pick a service, tell us when works for you, and we will confirm by email.",
+  "email": "hello@example.com",
+  "phone": "",
+  "address": "",
+  "hours": ["Tuesday to Saturday, 10am to 6pm"]
+}

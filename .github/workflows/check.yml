@@ -1,0 +1,71 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm db:migrate
+      - run: pnpm check
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  migration-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Classify new migrations
+        id: classify
+        run: |
+          node scripts/migration-check.mjs | tee out.txt
+          echo "label=$(grep '^label=' out.txt | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+        env:
+          MIGRATION_BASE: origin/${{ github.base_ref }}
+      - name: Label the pull request
+        if: steps.classify.outputs.label != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ steps.classify.outputs.label }}
+        run: |
+          gh label create "$LABEL" --force --color "$([ "$LABEL" = migration:destructive ] && echo B60205 || echo 0E8A16)" --description "Set by migration-check" || true
+          OTHER=$([ "$LABEL" = migration:destructive ] && echo migration:additive || echo migration:destructive)
+          gh pr edit ${{ github.event.pull_request.number }} --add-label "$LABEL" --remove-label "$OTHER" || gh pr edit ${{ github.event.pull_request.number }} --add-label "$LABEL"

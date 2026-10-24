@@ -5,12 +5,17 @@
 // - Only when this is a preview environment (Render sets IS_PULL_REQUEST=true) or SWARM_SEED=always.
 // - Only once per database: a marker table remembers which snapshot was loaded. Later commits to
 //   the same change keep their data. The control plane's reseed_preview tool asks for a fresh load.
+// - Never over real data: a database with no marker whose personal-data tables already hold rows
+//   is treated as production and left alone, exit 1, whatever IS_PULL_REQUEST says.
 // - Needs SWARM_URL and SWARM_SEED_TOKEN, which the control plane places on the production service;
 //   previews inherit them. Without them the script says so and exits 0 (an empty preview is still a
 //   preview).
+import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import postgres from 'postgres';
+import { parse } from 'yaml';
 import { load } from './lib/snapshot-load.mjs';
+import { protectedTablesWithData } from './lib/seed-guard.mjs';
 
 const isPreview = process.env.IS_PULL_REQUEST === 'true' || process.env.SWARM_SEED === 'always';
 if (!isPreview) {
@@ -47,6 +52,16 @@ try {
   if (last && !(reseedAt && new Date(last.seeded_at) < reseedAt)) {
     console.log(`seed-preview: already seeded from ${last.snapshot_id}; keeping the data`);
     process.exit(0);
+  }
+  if (!last) {
+    const dict = parse(readFileSync(new URL('../data/dictionary.yaml', import.meta.url), 'utf8'));
+    const busy = await protectedTablesWithData(sql, dict);
+    if (busy.length > 0) {
+      console.error(
+        `seed-preview: refusing to overwrite ${busy.join(', ')}: this database holds customer data and was never seeded by swarm. Is DATABASE_URL pointing at production?`,
+      );
+      process.exit(1);
+    }
   }
 
   const res = await fetch(`${swarmUrl}/api/seed/snapshot`, { headers });
